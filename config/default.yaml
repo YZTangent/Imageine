@@ -1,0 +1,21 @@
+api:
+  host: "0.0.0.0"
+  port: 8000
+  workers: 1
+  max_request_size_mb: 50
+
+models:
+  base_model: "stable-diffusion-v1-5/stable-diffusion-inpainting"
+  device: "auto"  # auto-detect: mps (Apple), cuda (NVIDIA), or cpu
+  dtype: "float16"
+  cache_dir: "./models_cache"
+
+generation:
+  default_steps: 25
+  default_guidance_scale: 7.5
+  scheduler: "DPMSolverMultistep"
+
+limits:
+  max_resolution: 2048
+  min_resolution: 256
+  request_timeout_seconds: 120

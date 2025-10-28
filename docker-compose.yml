@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  imageine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: imageine-api
+    ports:
+      - "8000:8000"
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
+    volumes:
+      # Mount models cache to avoid re-downloading
+      - ./models_cache:/app/models_cache
+      # Mount logs for persistence
+      - ./logs:/app/logs
+      # Optional: mount config for easy changes
+      - ./config:/app/config
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

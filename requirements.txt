@@ -1,0 +1,33 @@
+# Core
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.6.0
+python-multipart>=0.0.9
+
+# ML Core (Modern versions - 2025)
+torch>=2.4.0
+torchvision>=0.19.0
+diffusers>=0.35.0
+transformers>=4.40.0
+accelerate>=0.30.0
+
+# Image Processing
+Pillow>=10.0.0
+opencv-python>=4.9.0
+numpy>=2.0.0
+
+# Utilities
+pyyaml>=6.0.1
+requests>=2.31.0
+aiofiles>=23.2.1
+
+# Phase 2: Advanced Features
+# Note: These are optional and may require additional setup
+# groundingdino-py==0.4.0
+# segment-anything==1.0
+# controlnet-aux==0.0.7  # For pose/depth extraction
+# supervision==0.16.0  # For detection utilities
+# timm==0.9.12  # Required by some models
+
+# Optional Optimizations (uncomment if available on your system)
+# xformers==0.0.23  # For memory-efficient attention
