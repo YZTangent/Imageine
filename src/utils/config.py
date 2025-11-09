@@ -35,6 +35,13 @@ class LimitsConfig(BaseModel):
     request_timeout_seconds: int = 120
 
 
+class LoggingConfig(BaseModel):
+    """Pipeline logging configuration."""
+    enabled: bool = True
+    output_dir: str = "./pipeline_outputs"
+    save_intermediates: bool = True
+
+
 class Config:
     """Main configuration class."""
 
@@ -66,6 +73,11 @@ class Config:
     def limits(self) -> LimitsConfig:
         """Get limits configuration."""
         return LimitsConfig(**self._config['limits'])
+
+    @property
+    def logging(self) -> LoggingConfig:
+        """Get logging configuration."""
+        return LoggingConfig(**self._config.get('logging', {}))
 
     def get(self, key: str, default: Any = None) -> Any:
         """Get configuration value by key."""

@@ -19,3 +19,8 @@ limits:
   max_resolution: 2048
   min_resolution: 256
   request_timeout_seconds: 120
+
+logging:
+  enabled: true
+  output_dir: "./pipeline_outputs"
+  save_intermediates: true
