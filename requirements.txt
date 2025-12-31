@@ -22,12 +22,14 @@ requests>=2.31.0
 aiofiles>=23.2.1
 
 # Phase 2: Advanced Features
-# Note: These are optional and may require additional setup
-# groundingdino-py==0.4.0
-# segment-anything==1.0
-# controlnet-aux==0.0.7  # For pose/depth extraction
-# supervision==0.16.0  # For detection utilities
-# timm==0.9.12  # Required by some models
+# These are now enabled for Phase 2 implementation
+controlnet-aux>=0.0.7  # For pose/depth extraction
+timm>=0.9.12  # Required by some models
 
-# Optional Optimizations (uncomment if available on your system)
-# xformers==0.0.23  # For memory-efficient attention
+# Optional but recommended for better performance
+# xformers>=0.0.23  # For memory-efficient attention (requires compatible PyTorch/CUDA)
+# Note: xformers installation may vary by system. See: https://github.com/facebookresearch/xformers
+
+# Optional advanced detection (heavyweight, only if needed)
+# groundingdino-py>=0.4.0  # Alternative GroundingDINO implementation
+# segment-anything>=1.0  # For SAM-based segmentation

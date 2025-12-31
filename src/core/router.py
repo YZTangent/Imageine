@@ -18,7 +18,8 @@ class TaskRouter:
     }
 
     # Keywords that suggest simple pipeline
-    SIMPLE_KEYWORDS = ["color", "style", "texture", "pattern", "gradient", "tone", "hue"]
+    SIMPLE_KEYWORDS = ["color", "style", "texture",
+                       "pattern", "gradient", "tone", "hue"]
 
     def __init__(self, config=None):
         """
@@ -73,6 +74,7 @@ class TaskRouter:
             "prompt": prompt
         }
 
+    # Deprecated
     def detect_content_type(self, image: Optional[Image.Image] = None) -> str:
         """
         Detect content type in image.
@@ -126,7 +128,8 @@ class TaskRouter:
         )
         simple_score = analysis["simple_score"]
 
-        logger.debug(f"  Scores: complex={total_complex_score}, simple={simple_score}")
+        logger.debug(
+            f"  Scores: complex={total_complex_score}, simple={simple_score}")
 
         # Determine pipeline
         if total_complex_score > 0:
@@ -142,7 +145,8 @@ class TaskRouter:
             elif analysis["object_3d_score"] > 0 or analysis["structure_score"] > 0:
                 control_types.append("depth")
                 logger.info(f"  → Complex pipeline (depth control)")
-                logger.info(f"    Reason: 3D object/structure keywords detected")
+                logger.info(
+                    f"    Reason: 3D object/structure keywords detected")
 
             return ("complex", control_types if control_types else ["pose"])
 
@@ -150,9 +154,11 @@ class TaskRouter:
             # Simple pipeline sufficient
             logger.info(f"  → Simple pipeline")
             if simple_score > 0:
-                logger.info(f"    Reason: Simple modification keywords detected")
+                logger.info(
+                    f"    Reason: Simple modification keywords detected")
             else:
-                logger.info(f"    Reason: No complexity indicators found (default)")
+                logger.info(
+                    f"    Reason: No complexity indicators found (default)")
 
             return ("simple", [])
 

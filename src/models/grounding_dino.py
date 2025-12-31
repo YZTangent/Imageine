@@ -40,28 +40,60 @@ class GroundingDINODetector:
 
         logger.info("Loading GroundingDINO model...")
 
+        # Try multiple approaches in order of preference
+
+        # Approach 1: Try using transformers pipeline (easiest, most maintainable)
         try:
-            from groundingdino.util.inference import load_model as load_gdino_model
-            from groundingdino.util.inference import predict as gdino_predict
+            from transformers import pipeline
 
-            # Load model
-            # Note: This is a simplified version. Actual implementation may vary
-            # based on the specific GroundingDINO library being used
-            config_path = "path/to/config"  # TODO: Update with actual path
-            checkpoint_path = "path/to/checkpoint"  # TODO: Update with actual path
+            logger.info("Attempting to load zero-shot detection model from transformers...")
+            self._model = pipeline(
+                task="zero-shot-object-detection",
+                model="IDEA-Research/grounding-dino-tiny",
+                device=0 if self.device == "cuda" else -1
+            )
+            self._processor = None
+            logger.info("✓ GroundingDINO loaded successfully via transformers")
+            return
 
-            self._model = load_gdino_model(config_path, checkpoint_path)
-            self._model = self._model.to(self.device)
-
-            logger.info("✓ GroundingDINO loaded successfully")
-
-        except ImportError:
-            logger.warning("GroundingDINO not available, using fallback detection")
-            self._model = "fallback"
         except Exception as e:
-            logger.error(f"Failed to load GroundingDINO: {e}")
-            logger.warning("Using fallback detection method")
-            self._model = "fallback"
+            logger.debug(f"Transformers pipeline approach failed: {e}")
+
+        # Approach 2: Try OWL-ViT as alternative (also good for zero-shot detection)
+        try:
+            from transformers import OwlViTProcessor, OwlViTForObjectDetection
+
+            logger.info("Attempting to load OWL-ViT (alternative zero-shot detector)...")
+            self._processor = OwlViTProcessor.from_pretrained("google/owlvit-base-patch32")
+            self._model = OwlViTForObjectDetection.from_pretrained("google/owlvit-base-patch32")
+            self._model = self._model.to(self.device)
+            self._model.eval()
+            logger.info("✓ OWL-ViT loaded successfully (using as GroundingDINO alternative)")
+            return
+
+        except Exception as e:
+            logger.debug(f"OWL-ViT approach failed: {e}")
+
+        # Approach 3: Try direct GroundingDINO from transformers
+        try:
+            from transformers import AutoProcessor, AutoModelForZeroShotObjectDetection
+
+            logger.info("Attempting direct GroundingDINO model loading...")
+            self._processor = AutoProcessor.from_pretrained("IDEA-Research/grounding-dino-base")
+            self._model = AutoModelForZeroShotObjectDetection.from_pretrained("IDEA-Research/grounding-dino-base")
+            self._model = self._model.to(self.device)
+            self._model.eval()
+            logger.info("✓ GroundingDINO loaded successfully")
+            return
+
+        except Exception as e:
+            logger.debug(f"Direct GroundingDINO loading failed: {e}")
+
+        # Fallback: use simple detection
+        logger.warning("All GroundingDINO approaches failed, using fallback detection")
+        logger.info("Fallback will return full image mask (inpaint entire image)")
+        self._model = "fallback"
+        self._processor = None
 
     def detect(
         self,
@@ -91,16 +123,59 @@ class GroundingDINODetector:
             return np.ones((image.height, image.width), dtype=np.uint8)
 
         try:
-            # TODO: Implement actual GroundingDINO detection
-            # This is a placeholder for the actual implementation
+            # Approach 1: Pipeline-based detection
+            if hasattr(self._model, '__call__') and self._processor is None:
+                logger.debug(f"Running pipeline detection for: '{text_prompt}'")
+                results = self._model(image, candidate_labels=[text_prompt])
 
-            # For now, return full image mask
-            logger.debug("GroundingDINO detection not fully implemented yet")
-            return np.ones((image.height, image.width), dtype=np.uint8)
+                # Filter by confidence and get boxes
+                boxes = self.boxes_to_mask(
+                    [(r['box']['xmin'], r['box']['ymin'], r['box']['xmax'], r['box']['ymax'])
+                     for r in results if r['score'] >= confidence_threshold],
+                    (image.width, image.height)
+                )
+                logger.debug(f"Pipeline detected {len(results)} objects")
+                return boxes
+
+            # Approach 2: OWL-ViT or Direct model with processor
+            elif self._processor is not None:
+                logger.debug(f"Running model detection for: '{text_prompt}'")
+
+                # Process inputs
+                inputs = self._processor(
+                    text=[[text_prompt]],
+                    images=image,
+                    return_tensors="pt"
+                ).to(self.device)
+
+                # Run inference
+                with torch.no_grad():
+                    outputs = self._model(**inputs)
+
+                # Post-process results
+                target_sizes = torch.tensor([image.size[::-1]]).to(self.device)
+                results = self._processor.post_process_object_detection(
+                    outputs=outputs,
+                    threshold=confidence_threshold,
+                    target_sizes=target_sizes
+                )[0]
+
+                # Convert boxes to mask
+                if len(results['boxes']) > 0:
+                    boxes = [(int(b[0]), int(b[1]), int(b[2]), int(b[3]))
+                             for b in results['boxes'].cpu().numpy()]
+                    logger.debug(f"Model detected {len(boxes)} objects")
+                    return self.boxes_to_mask(boxes, (image.width, image.height))
+                else:
+                    logger.debug("No objects detected, using full image mask")
+                    return np.ones((image.height, image.width), dtype=np.uint8)
 
         except Exception as e:
             logger.error(f"Detection failed: {e}")
+            import traceback
+            logger.debug(f"Traceback: {traceback.format_exc()}")
             # Fallback to full image mask
+            logger.info("Falling back to full image mask")
             return np.ones((image.height, image.width), dtype=np.uint8)
 
     def detect_boxes(
@@ -120,8 +195,51 @@ class GroundingDINODetector:
         Returns:
             List of bounding boxes as (x1, y1, x2, y2)
         """
-        # TODO: Implement actual bounding box detection
-        # For now, return full image box
+        if confidence_threshold is None:
+            confidence_threshold = self.confidence_threshold
+
+        self.load_model()
+
+        # Fallback
+        if self._model == "fallback":
+            return [(0, 0, image.width, image.height)]
+
+        try:
+            # Pipeline approach
+            if hasattr(self._model, '__call__') and self._processor is None:
+                results = self._model(image, candidate_labels=[text_prompt])
+                return [
+                    (int(r['box']['xmin']), int(r['box']['ymin']),
+                     int(r['box']['xmax']), int(r['box']['ymax']))
+                    for r in results if r['score'] >= confidence_threshold
+                ]
+
+            # Model with processor approach
+            elif self._processor is not None:
+                inputs = self._processor(
+                    text=[[text_prompt]],
+                    images=image,
+                    return_tensors="pt"
+                ).to(self.device)
+
+                with torch.no_grad():
+                    outputs = self._model(**inputs)
+
+                target_sizes = torch.tensor([image.size[::-1]]).to(self.device)
+                results = self._processor.post_process_object_detection(
+                    outputs=outputs,
+                    threshold=confidence_threshold,
+                    target_sizes=target_sizes
+                )[0]
+
+                if len(results['boxes']) > 0:
+                    return [(int(b[0]), int(b[1]), int(b[2]), int(b[3]))
+                            for b in results['boxes'].cpu().numpy()]
+
+        except Exception as e:
+            logger.error(f"Box detection failed: {e}")
+
+        # Fallback
         return [(0, 0, image.width, image.height)]
 
     def boxes_to_mask(

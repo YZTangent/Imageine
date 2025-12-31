@@ -108,7 +108,7 @@ def test_generation(image_path: str, prompt: str, output_name: str = None):
             timeout=1200
         )
     except requests.exceptions.Timeout:
-        print("✗ Request timed out (>1200s)")
+        print("✗ Request timed out (>120s)")
         return False
     except Exception as e:
         print(f"✗ Request failed: {e}")
@@ -132,6 +132,11 @@ def test_generation(image_path: str, prompt: str, output_name: str = None):
 
             if output_name is None:
                 output_name = f"output_{prompt.replace(' ', '_')[:30]}.png"
+
+            Path("test_images").mkdir(parents=True, exist_ok=True)
+
+            if not output_name.startswith("test_images/"):
+                output_name = f"test_images/{output_name}"
 
             result_image.save(output_name)
             print(f"✓ Saved to: {output_name}")

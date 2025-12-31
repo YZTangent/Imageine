@@ -30,25 +30,52 @@ class PoseExtractor:
 
         logger.info("Loading pose estimation model...")
 
+        # Try multiple approaches for pose detection
+
+        # Approach 1: Try DWPose (newer, better)
+        try:
+            from controlnet_aux import DWposeDetector
+
+            logger.info("Attempting to load DWPose...")
+            self._model = DWposeDetector.from_pretrained("lllyasviel/ControlNet")
+            logger.info("✓ Pose model loaded (DWPose)")
+            return
+
+        except ImportError:
+            logger.debug("DWPose not available in controlnet_aux")
+        except Exception as e:
+            logger.debug(f"DWPose loading failed: {e}")
+
+        # Approach 2: Try OpenPose (classic)
         try:
             from controlnet_aux import OpenposeDetector
 
+            logger.info("Attempting to load OpenPose...")
             self._model = OpenposeDetector.from_pretrained("lllyasviel/ControlNet")
             logger.info("✓ Pose model loaded (OpenPose)")
+            return
 
         except ImportError:
-            logger.warning("controlnet_aux not available, trying DWPose...")
+            logger.debug("OpenPose not available in controlnet_aux")
+        except Exception as e:
+            logger.debug(f"OpenPose loading failed: {e}")
 
-            try:
-                # Try alternative pose detector
-                from controlnet_aux import DWposeDetector
+        # Approach 3: Try alternative package
+        try:
+            from controlnet_aux import OpenposeDetector as Openpose
 
-                self._model = DWposeDetector.from_pretrained("lllyasviel/ControlNet")
-                logger.info("✓ Pose model loaded (DWPose)")
+            logger.info("Attempting alternative OpenPose loading...")
+            self._model = Openpose.from_pretrained("lllyasviel/Annotators")
+            logger.info("✓ Pose model loaded (OpenPose - alternative)")
+            return
 
-            except Exception as e:
-                logger.error(f"Failed to load pose model: {e}")
-                self._model = None
+        except Exception as e:
+            logger.debug(f"Alternative OpenPose failed: {e}")
+
+        # All approaches failed
+        logger.error("Failed to load any pose estimation model")
+        logger.warning("Install controlnet_aux: pip install controlnet-aux")
+        self._model = None
 
     def extract(self, image: Image.Image) -> Optional[Image.Image]:
         """
@@ -101,32 +128,75 @@ class DepthExtractor:
 
         logger.info(f"Loading depth model ({self.model_type})...")
 
-        try:
-            if self.model_type == "depth-anything":
+        # Try multiple approaches for depth estimation
+
+        # Approach 1: Depth-Anything (preferred for quality)
+        if self.model_type == "depth-anything":
+            try:
                 from transformers import pipeline
 
+                logger.info("Attempting to load Depth-Anything-V2...")
                 self._model = pipeline(
                     "depth-estimation",
                     model="depth-anything/Depth-Anything-V2-Small-hf",
                     device=0 if self.device == "cuda" else -1
                 )
-                logger.info("✓ Depth-Anything model loaded")
+                logger.info("✓ Depth-Anything-V2 model loaded")
+                return
 
-            elif self.model_type == "midas":
+            except Exception as e:
+                logger.debug(f"Depth-Anything-V2 failed: {e}")
+
+                # Try V1 as fallback
+                try:
+                    logger.info("Trying Depth-Anything V1...")
+                    self._model = pipeline(
+                        "depth-estimation",
+                        model="LiheYoung/depth-anything-small-hf",
+                        device=0 if self.device == "cuda" else -1
+                    )
+                    logger.info("✓ Depth-Anything V1 model loaded")
+                    return
+                except Exception as e2:
+                    logger.debug(f"Depth-Anything V1 failed: {e2}")
+
+        # Approach 2: MiDaS (alternative)
+        if self.model_type == "midas" or self.model_type == "depth-anything":
+            try:
                 from controlnet_aux import MidasDetector
 
+                logger.info("Attempting to load MiDaS...")
                 self._model = MidasDetector.from_pretrained("lllyasviel/ControlNet")
+                self.model_type = "midas"  # Update type
                 logger.info("✓ MiDaS model loaded")
+                return
 
-            else:
-                raise ValueError(f"Unknown depth model type: {self.model_type}")
+            except ImportError:
+                logger.debug("controlnet_aux not available for MiDaS")
+            except Exception as e:
+                logger.debug(f"MiDaS loading failed: {e}")
 
-        except ImportError as e:
-            logger.error(f"Required library not available: {e}")
-            self._model = None
+        # Approach 3: Try Intel's DPT model
+        try:
+            from transformers import pipeline
+
+            logger.info("Attempting to load DPT depth model...")
+            self._model = pipeline(
+                "depth-estimation",
+                model="Intel/dpt-large",
+                device=0 if self.device == "cuda" else -1
+            )
+            self.model_type = "dpt"
+            logger.info("✓ DPT depth model loaded")
+            return
+
         except Exception as e:
-            logger.error(f"Failed to load depth model: {e}")
-            self._model = None
+            logger.debug(f"DPT model failed: {e}")
+
+        # All approaches failed
+        logger.error(f"Failed to load any depth estimation model")
+        logger.warning("Try: pip install transformers[torch] controlnet-aux")
+        self._model = None
 
     def extract(self, image: Image.Image) -> Optional[Image.Image]:
         """
@@ -145,11 +215,20 @@ class DepthExtractor:
             return None
 
         try:
-            if self.model_type == "depth-anything":
-                # Depth-Anything returns a dict with 'depth' and 'predicted_depth'
+            if self.model_type in ["depth-anything", "dpt"]:
+                # Pipeline-based depth models return a dict with 'depth' or 'predicted_depth'
                 result = self._model(image)
-                depth_map = result["depth"]
-                logger.debug("Depth extracted successfully (Depth-Anything)")
+
+                # Try to get depth map from result
+                if isinstance(result, dict):
+                    depth_map = result.get("depth") or result.get("predicted_depth")
+                elif isinstance(result, Image.Image):
+                    depth_map = result
+                else:
+                    logger.error(f"Unexpected result type: {type(result)}")
+                    return None
+
+                logger.debug(f"Depth extracted successfully ({self.model_type})")
                 return depth_map
 
             elif self.model_type == "midas":
@@ -158,8 +237,14 @@ class DepthExtractor:
                 logger.debug("Depth extracted successfully (MiDaS)")
                 return depth_map
 
+            else:
+                logger.error(f"Unknown model type: {self.model_type}")
+                return None
+
         except Exception as e:
             logger.error(f"Depth extraction failed: {e}")
+            import traceback
+            logger.debug(f"Traceback: {traceback.format_exc()}")
             return None
 
 
